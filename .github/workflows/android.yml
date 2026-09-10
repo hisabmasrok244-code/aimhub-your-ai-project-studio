@@ -33,6 +33,10 @@ jobs:
       - name: Build web bundle
         run: bun run build
 
+      - name: Verify Capacitor webDir exists
+        run: |
+          test -d dist/client || { echo "dist/client missing after build"; ls -la dist || true; exit 1; }
+
       - name: Add Android platform
         env:
           AIMHUB_APP_URL: ${{ github.event.inputs.app_url || vars.AIMHUB_APP_URL }}

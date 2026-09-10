@@ -12,4 +12,14 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    environments: {
+      client: {
+        build: {
+          // Pin the client output so Capacitor's webDir (dist/client) always exists after build.
+          outDir: "dist/client",
+        },
+      },
+    },
+  },
 });
