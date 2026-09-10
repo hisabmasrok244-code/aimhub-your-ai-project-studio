@@ -53,7 +53,13 @@ export const Route = createFileRoute("/api/public/builds/callback")({
         }
 
         const allowed = ["queued", "running", "success", "failed", "cancelled"];
-        const update: Record<string, unknown> = {};
+        const update: {
+          status?: string;
+          started_at?: string;
+          finished_at?: string;
+          artifact_url?: string;
+          error?: string;
+        } = {};
         if (payload.status && allowed.includes(payload.status)) {
           update["status"] = payload.status;
           if (payload.status === "running") update["started_at"] = new Date().toISOString();
