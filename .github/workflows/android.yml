@@ -2,7 +2,9 @@ name: Build AimHub APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+
   workflow_dispatch:
     inputs:
       app_url:
@@ -13,41 +15,185 @@ on:
 jobs:
   android:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
+    steps:
+      # =========================
+      # Checkout
+      # =========================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # =========================
+      # Bun
+      # =========================
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - uses: actions/setup-java@v4
+      # =========================
+      # Java
+      # =========================
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
-      - uses: android-actions/setup-android@v3
+      # =========================
+      # Android SDK
+      # =========================
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
+      # =========================
+      # Install dependencies
+      # =========================
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build web bundle
+      # =========================
+      # Build web application
+      # =========================
+      - name: Build web application
         run: bun run build
 
-      - name: Verify Capacitor webDir exists
+      # =========================
+      # Detect and prepare Capacitor web assets
+      # =========================
+      - name: Prepare Capacitor web assets
+        shell: bash
         run: |
-          test -d dist/client || { echo "dist/client missing after build"; ls -la dist || true; exit 1; }
+          set -e
 
+          echo "======================================"
+          echo "Searching for web build output..."
+          echo "======================================"
+
+          rm -rf dist/client
+          mkdir -p dist/client
+
+          # TanStack Start / Nitro output
+          if [ -d ".output/public" ] && [ -f ".output/public/index.html" ]; then
+            echo "Found TanStack Start output: .output/public"
+            cp -R .output/public/. dist/client/
+
+          # Standard Vite output
+          elif [ -d "dist" ] && [ -f "dist/index.html" ]; then
+            echo "Found standard Vite output: dist"
+            
+            mkdir -p /tmp/aimhub-web
+            cp -R dist/. /tmp/aimhub-web/
+
+            rm -rf dist/client
+            mkdir -p dist/client
+            cp -R /tmp/aimhub-web/. dist/client/
+
+          # Existing dist/client output
+          elif [ -d "dist/client" ] && [ -f "dist/client/index.html" ]; then
+            echo "Found existing Capacitor output: dist/client"
+
+          else
+            echo "ERROR: Could not find a valid web build output."
+            echo ""
+            echo "Repository root:"
+            ls -la
+            echo ""
+            echo "Searching for index.html files:"
+            find . \
+              -path "./node_modules" -prune -o \
+              -path "./.git" -prune -o \
+              -name "index.html" -print
+            echo ""
+            echo "Searching for build directories:"
+            find . \
+              -path "./node_modules" -prune -o \
+              -path "./.git" -prune -o \
+              \( -name "dist" -o -name ".output" \) \
+              -print
+            exit 1
+          fi
+
+          echo ""
+          echo "======================================"
+          echo "Capacitor web assets:"
+          echo "======================================"
+
+          test -f dist/client/index.html
+
+          find dist/client -maxdepth 2 -type f | head -100
+
+          echo ""
+          echo "Web assets prepared successfully."
+
+      # =========================
+      # Add / prepare Android
+      # =========================
       - name: Add Android platform
         env:
           AIMHUB_APP_URL: ${{ github.event.inputs.app_url || vars.AIMHUB_APP_URL }}
+        shell: bash
         run: |
-          bunx cap add android || true
+          set -e
+
+          if [ ! -d "android" ]; then
+            echo "Android platform does not exist. Creating it..."
+            bunx cap add android
+          else
+            echo "Android platform already exists."
+          fi
+
+          echo "Syncing Capacitor..."
           bunx cap sync android
 
+      # =========================
+      # Verify Android project
+      # =========================
+      - name: Verify Android project
+        shell: bash
+        run: |
+          set -e
+
+          test -d android
+          test -f android/gradlew
+
+          chmod +x android/gradlew
+
+          echo "Android project is ready."
+
+      # =========================
+      # Build APK
+      # =========================
       - name: Assemble debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
 
+      # =========================
+      # Verify APK
+      # =========================
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -e
+
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            echo ""
+            echo "Available APK files:"
+            find android -type f -name "*.apk" -print || true
+            exit 1
+          fi
+
+          echo "APK generated successfully:"
+          ls -lh "$APK"
+
+      # =========================
+      # Upload APK
+      # =========================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
