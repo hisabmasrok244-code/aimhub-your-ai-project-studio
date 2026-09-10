@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       app_url:
-        description: "AimHub deployed URL"
+        description: "رابط AimHub المنشور"
         required: false
         default: ""
 
@@ -17,31 +17,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      # ==============================
+      # 1. تحميل المشروع
+      # ==============================
+      - name: تحميل المشروع
         uses: actions/checkout@v4
 
-      - name: Setup Bun
+      # ==============================
+      # 2. إعداد Bun
+      # ==============================
+      - name: إعداد Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Setup Java
+      # ==============================
+      # 3. إعداد Java
+      # ==============================
+      - name: إعداد Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
-      - name: Setup Android SDK
+      # ==============================
+      # 4. إعداد Android SDK
+      # ==============================
+      - name: إعداد Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install dependencies
+      # ==============================
+      # 5. تثبيت Dependencies
+      # ==============================
+      - name: تثبيت الحزم
         run: bun install --frozen-lockfile
 
-      # AimHub Android is a Capacitor shell that loads
-      # the deployed AimHub URL from capacitor.config.ts.
-      # Capacitor still requires webDir to exist during sync.
-      - name: Prepare Capacitor web directory
-        shell: bash
+      # ==============================
+      # 6. إنشاء مجلد Web حقيقي
+      # ==============================
+      # AimHub تطبيق Server-rendered ويستخدم
+      # server.url الموجود في capacitor.config.ts.
+      # Capacitor يحتاج webDir موجودًا فقط أثناء sync.
+      - name: تجهيز Web assets لـ Capacitor
         run: |
           set -e
 
@@ -50,72 +67,124 @@ jobs:
 
           cat > dist/client/index.html <<'EOF'
           <!doctype html>
-          <html>
+          <html lang="en">
             <head>
-              <meta charset="UTF-8" />
+              <meta charset="UTF-8">
               <meta
                 name="viewport"
                 content="width=device-width, initial-scale=1.0"
-              />
+              >
               <title>AimHub</title>
             </head>
             <body>
-              <div id="root">Loading AimHub...</div>
+              <p>Loading AimHub...</p>
             </body>
           </html>
           EOF
 
-          echo "Capacitor web directory prepared:"
-          ls -la dist/client
+          test -f dist/client/index.html
 
-      - name: Add Android platform
+          echo "Web assets جاهزة."
+
+      # ==============================
+      # 7. حذف Android القديم
+      # ==============================
+      # لا نعتمد على Android project قديم أو ناقص.
+      - name: تنظيف Android القديم
+        run: |
+          rm -rf android
+
+      # ==============================
+      # 8. إنشاء Android من جديد
+      # ==============================
+      - name: إنشاء مشروع Android
         env:
           AIMHUB_APP_URL: ${{ github.event.inputs.app_url || vars.AIMHUB_APP_URL }}
-        shell: bash
         run: |
           set -e
 
-          if [ ! -d "android" ]; then
-            bunx cap add android
-          else
-            echo "Android platform already exists."
+          bunx cap add android
+
+      # ==============================
+      # 9. إضافة صلاحية الإنترنت
+      # ==============================
+      - name: إعداد Android للإنترنت
+        run: |
+          set -e
+
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+
+          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            sed -i '/<manifest[^>]*>/a\    <uses-permission android:name="android.permission.INTERNET" />' "$MANIFEST"
           fi
 
-      - name: Sync Capacitor
+          echo "AndroidManifest:"
+          cat "$MANIFEST"
+
+      # ==============================
+      # 10. Sync Capacitor
+      # ==============================
+      - name: مزامنة Capacitor
         env:
           AIMHUB_APP_URL: ${{ github.event.inputs.app_url || vars.AIMHUB_APP_URL }}
         run: |
           set -e
+
           bunx cap sync android
 
-      - name: Verify Android project
+      # ==============================
+      # 11. التحقق من رابط AimHub
+      # ==============================
+      - name: التحقق من إعداد AimHub
         run: |
-          test -d android
+          echo "Capacitor configuration:"
+          cat capacitor.config.ts
+
+          echo ""
+          echo "Android project:"
           test -f android/gradlew
+
+      # ==============================
+      # 12. إعطاء صلاحية تنفيذ Gradle
+      # ==============================
+      - name: تجهيز Gradle
+        run: |
           chmod +x android/gradlew
 
-      - name: Assemble debug APK
+      # ==============================
+      # 13. بناء APK
+      # ==============================
+      - name: بناء APK
         working-directory: android
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Verify APK
+      # ==============================
+      # 14. التأكد من APK
+      # ==============================
+      - name: التحقق من APK
         run: |
+          set -e
+
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "APK was not generated."
+            echo "ERROR: APK غير موجود."
+            echo ""
+            echo "APK files الموجودة:"
             find android -type f -name "*.apk" -print || true
             exit 1
           fi
 
-          echo "APK successfully generated:"
+          echo "APK تم إنشاؤه بنجاح:"
           ls -lh "$APK"
 
-      - name: Upload APK artifact
+      # ==============================
+      # 15. رفع APK
+      # ==============================
+      - name: رفع APK
         uses: actions/upload-artifact@v4
         with:
-          name: aimhub-apk
+          name: AimHub-Android-APK
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
