@@ -164,7 +164,7 @@ function ProjectPage() {
   return (
     <AppShell
       title={project.data?.name ?? "المستودع"}
-      subtitle={project.data?.description ?? project.data?.slug}
+      subtitle={project.data?.description ?? project.data?.slug ?? ""}
       action={
         <Button size="sm" onClick={() => runBuild.mutate()} disabled={runBuild.isPending}>
           <Play className="size-4" /> بناء

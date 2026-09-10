@@ -36,7 +36,14 @@ export const saveAiSettings = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const payload: Record<string, unknown> = {
+    const payload: {
+      user_id: string;
+      provider: string;
+      base_url: string;
+      model: string;
+      updated_at: string;
+      api_key_ciphertext?: string;
+    } = {
       user_id: context.userId,
       provider: data.provider,
       base_url: data.baseUrl,
@@ -113,7 +120,7 @@ export const getMessages = createServerFn({ method: "GET" })
       .eq("conversation_id", data.conversationId)
       .order("created_at");
     if (error) throw new Error(error.message);
-    return (rows ?? []) as AiMessage[];
+    return (rows ?? []) as unknown as AiMessage[];
   });
 
 export const listProposals = createServerFn({ method: "GET" })
@@ -147,7 +154,7 @@ export const applyProposal = createServerFn({ method: "POST" })
     if (!proposal) throw new Error("المقترح غير موجود");
     if (proposal.status !== "pending") throw new Error("سبق التعامل مع هذا المقترح");
 
-    const changes = (proposal.changes ?? []) as FileChange[];
+    const changes = (proposal.changes ?? []) as unknown as FileChange[];
     for (const change of changes) {
       if (change.action === "delete") {
         await context.supabase

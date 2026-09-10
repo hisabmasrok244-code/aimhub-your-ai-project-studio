@@ -72,7 +72,7 @@ export interface AiMessage {
   id: string;
   role: string;
   content: string;
-  metadata: Record<string, unknown> | null;
+  metadata: { proposal_id?: string } | null;
   created_at: string;
 }
 
