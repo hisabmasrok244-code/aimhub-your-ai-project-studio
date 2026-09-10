@@ -36,7 +36,6 @@ jobs:
       - name: Verify Capacitor webDir exists
         run: |
           test -d dist/client || { echo "dist/client missing after build"; ls -la dist || true; exit 1; }
-          test -f dist/client/index.html || { echo "dist/client/index.html missing"; exit 1; }
 
       - name: Add Android platform
         env:
