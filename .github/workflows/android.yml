@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       app_url:
-        description: "Deployed AimHub URL loaded by the Android shell"
+        description: "AimHub deployed URL"
         required: false
         default: ""
 
@@ -17,118 +17,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # =========================
-      # Checkout
-      # =========================
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # =========================
-      # Bun
-      # =========================
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      # =========================
-      # Java
-      # =========================
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
-      # =========================
-      # Android SDK
-      # =========================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # =========================
-      # Install dependencies
-      # =========================
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # =========================
-      # Build web application
-      # =========================
-      - name: Build web application
-        run: bun run build
-
-      # =========================
-      # Detect and prepare Capacitor web assets
-      # =========================
-      - name: Prepare Capacitor web assets
+      # AimHub Android is a Capacitor shell that loads
+      # the deployed AimHub URL from capacitor.config.ts.
+      # Capacitor still requires webDir to exist during sync.
+      - name: Prepare Capacitor web directory
         shell: bash
         run: |
           set -e
 
-          echo "======================================"
-          echo "Searching for web build output..."
-          echo "======================================"
-
-          rm -rf dist/client
+          rm -rf dist
           mkdir -p dist/client
 
-          # TanStack Start / Nitro output
-          if [ -d ".output/public" ] && [ -f ".output/public/index.html" ]; then
-            echo "Found TanStack Start output: .output/public"
-            cp -R .output/public/. dist/client/
+          cat > dist/client/index.html <<'EOF'
+          <!doctype html>
+          <html>
+            <head>
+              <meta charset="UTF-8" />
+              <meta
+                name="viewport"
+                content="width=device-width, initial-scale=1.0"
+              />
+              <title>AimHub</title>
+            </head>
+            <body>
+              <div id="root">Loading AimHub...</div>
+            </body>
+          </html>
+          EOF
 
-          # Standard Vite output
-          elif [ -d "dist" ] && [ -f "dist/index.html" ]; then
-            echo "Found standard Vite output: dist"
-            
-            mkdir -p /tmp/aimhub-web
-            cp -R dist/. /tmp/aimhub-web/
+          echo "Capacitor web directory prepared:"
+          ls -la dist/client
 
-            rm -rf dist/client
-            mkdir -p dist/client
-            cp -R /tmp/aimhub-web/. dist/client/
-
-          # Existing dist/client output
-          elif [ -d "dist/client" ] && [ -f "dist/client/index.html" ]; then
-            echo "Found existing Capacitor output: dist/client"
-
-          else
-            echo "ERROR: Could not find a valid web build output."
-            echo ""
-            echo "Repository root:"
-            ls -la
-            echo ""
-            echo "Searching for index.html files:"
-            find . \
-              -path "./node_modules" -prune -o \
-              -path "./.git" -prune -o \
-              -name "index.html" -print
-            echo ""
-            echo "Searching for build directories:"
-            find . \
-              -path "./node_modules" -prune -o \
-              -path "./.git" -prune -o \
-              \( -name "dist" -o -name ".output" \) \
-              -print
-            exit 1
-          fi
-
-          echo ""
-          echo "======================================"
-          echo "Capacitor web assets:"
-          echo "======================================"
-
-          test -f dist/client/index.html
-
-          find dist/client -maxdepth 2 -type f | head -100
-
-          echo ""
-          echo "Web assets prepared successfully."
-
-      # =========================
-      # Add / prepare Android
-      # =========================
       - name: Add Android platform
         env:
           AIMHUB_APP_URL: ${{ github.event.inputs.app_url || vars.AIMHUB_APP_URL }}
@@ -137,63 +76,43 @@ jobs:
           set -e
 
           if [ ! -d "android" ]; then
-            echo "Android platform does not exist. Creating it..."
             bunx cap add android
           else
             echo "Android platform already exists."
           fi
 
-          echo "Syncing Capacitor..."
-          bunx cap sync android
-
-      # =========================
-      # Verify Android project
-      # =========================
-      - name: Verify Android project
-        shell: bash
+      - name: Sync Capacitor
+        env:
+          AIMHUB_APP_URL: ${{ github.event.inputs.app_url || vars.AIMHUB_APP_URL }}
         run: |
           set -e
+          bunx cap sync android
 
+      - name: Verify Android project
+        run: |
           test -d android
           test -f android/gradlew
-
           chmod +x android/gradlew
 
-          echo "Android project is ready."
-
-      # =========================
-      # Build APK
-      # =========================
       - name: Assemble debug APK
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      # =========================
-      # Verify APK
-      # =========================
       - name: Verify APK
-        shell: bash
         run: |
-          set -e
-
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: APK was not generated."
-            echo ""
-            echo "Available APK files:"
+            echo "APK was not generated."
             find android -type f -name "*.apk" -print || true
             exit 1
           fi
 
-          echo "APK generated successfully:"
+          echo "APK successfully generated:"
           ls -lh "$APK"
 
-      # =========================
-      # Upload APK
-      # =========================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
